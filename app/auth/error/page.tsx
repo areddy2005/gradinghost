@@ -1,9 +1,9 @@
 'use client';
 
 import { useSearchParams } from 'next/navigation';
-import React from 'react';
+import React, { Suspense } from 'react';
 
-export default function AuthErrorPage() {
+function AuthErrorContent() {
   const searchParams = useSearchParams();
   const error = searchParams.get('error');
 
@@ -13,5 +13,13 @@ export default function AuthErrorPage() {
       <p>{error === 'AccessDenied' ? 'Access denied: You must use a @berkeley.edu account.' : 'An error occurred during sign-in.'}</p>
       <a href="/auth/signin" style={{ marginTop: '1rem', color: 'blue' }}>Back to sign in</a>
     </main>
+  );
+}
+
+export default function AuthErrorPage() {
+  return (
+    <Suspense fallback={<div>Loading...</div>}>
+      <AuthErrorContent />
+    </Suspense>
   );
 } 
