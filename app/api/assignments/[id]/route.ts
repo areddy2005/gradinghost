@@ -6,11 +6,11 @@ import { authOptions } from '../../auth/[...nextauth]/route';
 
 const prisma = new PrismaClient();
 
-export async function GET(_req: Request, ctx: { params: { id: string } }) {
+export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> }) {
   const session = await getServerSession(authOptions);
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
-  const { id } = ctx.params; // accessed after first await
+  const { id } = await ctx.params;
 
   // @ts-ignore
   const assignment = await prisma.assignment.findUnique({

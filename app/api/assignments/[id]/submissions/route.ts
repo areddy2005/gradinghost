@@ -6,10 +6,10 @@ import { authOptions } from '@/app/api/auth/[...nextauth]/route';
 
 const prisma = new PrismaClient();
 
-export async function GET(_req: Request, ctx: { params: { id: string } }) {
+export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> }) {
   const session = await getServerSession(authOptions);
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-  const assignmentId = ctx.params.id;
+  const { id: assignmentId } = await ctx.params;
   // @ts-ignore
   const groups = await prisma.submissionGroup.findMany({
     where: { assignmentId },
@@ -27,11 +27,11 @@ export async function GET(_req: Request, ctx: { params: { id: string } }) {
   return NextResponse.json(groups);
 }
 
-export async function POST(req: Request, ctx: { params: { id: string } }) {
+export async function POST(req: Request, ctx: { params: Promise<{ id: string }> }) {
   const session = await getServerSession(authOptions);
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
-  const assignmentId = ctx.params.id;
+  const { id: assignmentId } = await ctx.params;
   const form = await req.formData();
   const studentName = form.get('studentName') as string | null;
   const files = form.getAll('pages') as File[];

@@ -5,11 +5,12 @@ const prisma = new PrismaClient();
 
 export async function GET(
   _request: Request,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
+  const { id } = await params;
   // @ts-ignore - Prisma client delegate
   const assignment = await prisma.assignment.findUnique({
-    where: { id: params.id },
+    where: { id },
     select: { promptImage: true },
   });
 

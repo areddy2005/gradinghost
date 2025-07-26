@@ -8,11 +8,11 @@ import OpenAI from 'openai';
 const prisma = new PrismaClient();
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
-export async function POST(_req: Request, ctx: { params: { id: string } }) {
+export async function POST(_req: Request, ctx: { params: Promise<{ id: string }> }) {
   const session = await getServerSession(authOptions);
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
-  const groupId = ctx.params.id;
+  const { id: groupId } = await ctx.params;
   // @ts-ignore
   const group = await prisma.submissionGroup.findUnique({
     where: { id: groupId },

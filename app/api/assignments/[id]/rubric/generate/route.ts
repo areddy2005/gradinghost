@@ -20,13 +20,13 @@ function computeTotalPoints(rubric: any): number {
   }, 0);
 }
 
-export async function POST(_req: Request, { params }: { params: { id: string } }) {
+export async function POST(_req: Request, { params }: { params: Promise<{ id: string }> }) {
   const session = await getServerSession(authOptions);
   if (!session) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
-  const assignmentId = params.id;
+  const { id: assignmentId } = await params;
   // @ts-ignore
   const assignment = await prisma.assignment.findUnique({ where: { id: assignmentId } });
   if (!assignment) {
