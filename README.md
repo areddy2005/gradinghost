@@ -42,8 +42,8 @@ A Next.js application for TAs to create assignments, generate rubrics using GPT,
    ```
 
 4. **Run development server**:
-   ```bash
-   npm run dev
+```bash
+npm run dev
    ```
 
 5. **Access the app**: http://localhost:3001

@@ -6,11 +6,37 @@ import { authOptions } from '@/lib/auth';
 
 const prisma = new PrismaClient();
 
+// Ensure every section, part, and rubricItem has a deterministic id so
+// downstream GPT calls can reference them.
+function ensureIds(rubric: any) {
+  if (!rubric?.sections) return;
+  rubric.sections.forEach((sec: any, sIdx: number) => {
+    if (!sec.id) sec.id = `section-${sIdx}`;
+
+    // section-level items
+    (sec.rubricItems || []).forEach((it: any, iIdx: number) => {
+      if (!it.id) it.id = `item-${sIdx}-${iIdx}`;
+    });
+
+    // nested parts + items
+    (sec.parts || []).forEach((p: any, pIdx: number) => {
+      if (!p.id) p.id = `part-${sIdx}-${pIdx}`;
+      (p.rubricItems || []).forEach((it: any, iIdx: number) => {
+        if (!it.id) it.id = `item-${sIdx}-${pIdx}-${iIdx}`;
+      });
+    });
+  });
+}
+
 function computeTotal(rubric: any): number {
   if (!rubric || !rubric.sections) return 0;
   return rubric.sections.reduce((sum: number, sec: any) => {
-    const critSum = sec.criteria ? sec.criteria.reduce((s: number, c: any) => s + (c.points || 0), 0) : 0;
-    return sum + (sec.points || 0) + critSum;
+    let sectionTotal = 0;
+    sectionTotal += (sec.rubricItems || []).reduce((s: number, it: any) => s + (it.points || 0), 0);
+    sectionTotal += (sec.parts || []).reduce((partSum: number, part: any) => {
+      return partSum + (part.rubricItems || []).reduce((itSum: number, it: any) => itSum + (it.points || 0), 0);
+    }, 0);
+    return sum + sectionTotal;
   }, 0);
 }
 
@@ -21,6 +47,9 @@ export async function PUT(request: Request, { params }: { params: Promise<{ id: 
   const { id: assignmentId } = await params;
   const body = await request.json();
   const rubric = body.rubric;
+
+  // add ids if missing
+  ensureIds(rubric);
 
   if (!rubric) return NextResponse.json({ error: 'Rubric required' }, { status: 400 });
 

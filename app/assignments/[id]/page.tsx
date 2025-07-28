@@ -3,6 +3,8 @@
 import React, { useEffect, useState } from 'react';
 import { useRouter, useParams } from 'next/navigation';
 import Link from 'next/link';
+import RubricBuilder from '@/app/components/RubricBuilder';
+import RubricDisplay from '@/app/components/RubricDisplay';
 
 interface RubricResponse {
   id: string;
@@ -22,6 +24,7 @@ export default function AssignmentDetail() {
   const [jsonText, setJsonText] = useState('');
   const [msg, setMsg] = useState<string | null>(null);
   const [subs, setSubs] = useState<any[]>([]);
+  const [showRubricBuilder, setShowRubricBuilder] = useState(false);
 
   const fetchData = async () => {
     setLoading(true);
@@ -41,6 +44,16 @@ export default function AssignmentDetail() {
   useEffect(() => {
     fetchData();
     fetchSubs();
+    
+    // Listen for updates from student view pages
+    const handleMessage = (event: MessageEvent) => {
+      if (event.data.type === 'SUBMISSION_UPDATED') {
+        fetchSubs(); // Refresh the submissions list
+      }
+    };
+    
+    window.addEventListener('message', handleMessage);
+    return () => window.removeEventListener('message', handleMessage);
   }, []);
 
   const handleGenerate = async () => {
@@ -50,14 +63,7 @@ export default function AssignmentDetail() {
     setMsg(null);
   };
 
-  const handleSave = async () => {
-    let rubric;
-    try {
-      rubric = JSON.parse(jsonText);
-    } catch {
-      setMsg('Invalid JSON');
-      return;
-    }
+  const handleSave = async (rubric: any) => {
     setMsg('Saving…');
     await fetch(`/api/assignments/${id}/rubric`, {
       method: 'PUT',
@@ -66,6 +72,7 @@ export default function AssignmentDetail() {
     });
     await fetchData();
     setMsg(null);
+    setShowRubricBuilder(false);
   };
 
   const grade = async (subId: string) => {
@@ -95,42 +102,63 @@ export default function AssignmentDetail() {
       </Link>
 
       {!data.rubric && (
-        <button onClick={handleGenerate} style={{ padding: '0.5rem 1rem' }}>Generate Rubric</button>
+        <div style={{ marginTop: '1rem' }}>
+          <button 
+            onClick={() => setShowRubricBuilder(true)} 
+            style={{ padding: '0.5rem 1rem', marginRight: '1rem', background: '#2563eb', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer' }}
+          >
+            Create Rubric
+          </button>
+          <button onClick={handleGenerate} style={{ padding: '0.5rem 1rem' }}>Generate Rubric</button>
+        </div>
       )}
 
       {data.rubric && (
         <>
-          <h2>Rubric (hierarchical view)</h2>
-          <ul style={{ listStyleType: 'disc', paddingLeft: '1.5rem' }}>
-            {data.rubric.sections?.map((sec: any, idx: number) => (
-              <li key={idx} style={{ marginBottom: '0.5rem' }}>
-                <strong>{sec.title}</strong> – {sec.points} pts
-                {sec.criteria && (
-                  <ul style={{ listStyleType: 'circle', paddingLeft: '1.5rem', marginTop: '0.25rem' }}>
-                    {sec.criteria.map((c: any, j: number) => (
-                      <li key={j}>
-                        {c.text} – {c.points} pts
-                      </li>
-                    ))}
-                  </ul>
-                )}
-              </li>
-            ))}
-          </ul>
-
-          {/* Editable JSON textarea for TA modifications */}
-          <textarea
-            value={jsonText}
-            onChange={(e) => setJsonText(e.target.value)}
-            rows={12}
-            style={{ width: '100%', fontFamily: 'monospace', marginTop: '1rem' }}
-          />
+          <h2>Rubric</h2>
+          <RubricDisplay rubric={data.rubric} totalPoints={data.totalPoints} />
 
           <div style={{ marginTop: '1rem' }}>
-            <button onClick={handleSave} style={{ padding: '0.5rem 1rem', marginRight: '1rem' }}>Save</button>
+            <button 
+              onClick={() => setShowRubricBuilder(true)} 
+              style={{ padding: '0.5rem 1rem', marginRight: '1rem', background: '#2563eb', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer' }}
+            >
+              Edit Rubric
+            </button>
             <button onClick={handleGenerate} style={{ padding: '0.5rem 1rem' }}>Regenerate Rubric</button>
           </div>
         </>
+      )}
+
+      {showRubricBuilder && (
+        <div style={{ 
+          position: 'fixed', 
+          top: 0, 
+          left: 0, 
+          right: 0, 
+          bottom: 0, 
+          background: 'rgba(0,0,0,0.5)', 
+          zIndex: 1000,
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center'
+        }}>
+          <div style={{ 
+            background: 'white', 
+            borderRadius: '8px', 
+            maxWidth: '90vw', 
+            maxHeight: '90vh', 
+            overflow: 'auto',
+            padding: '20px'
+          }}>
+            <RubricBuilder
+              initialRubric={data.rubric}
+              totalPoints={data.totalPoints}
+              onSave={handleSave}
+              onCancel={() => setShowRubricBuilder(false)}
+            />
+          </div>
+        </div>
       )}
       {msg && <p>{msg}</p>}
 
@@ -151,6 +179,12 @@ export default function AssignmentDetail() {
               <td style={{ textAlign: 'center' }}>{s._count.pages}</td>
               <td style={{ textAlign: 'center' }}>{s.totalScore ?? '—'}</td>
               <td style={{ whiteSpace: 'nowrap' }}>
+                <button
+                  onClick={() => window.open(`/assignments/${params.id}/submissions/${s.id}`, '_blank')}
+                  style={{ padding: '0.25rem 0.5rem', marginRight: 4, background: '#059669', color: 'white' }}
+                >
+                  View
+                </button>
                 {!s.totalScore && (
                   <button onClick={() => grade(s.id)} style={{ padding: '0.25rem 0.5rem', marginRight: 4 }}>Grade</button>
                 )}

@@ -11,12 +11,18 @@ const prisma = new PrismaClient();
 
 function computeTotalPoints(rubric: any): number {
   if (!rubric || !rubric.sections) return 0;
-  return rubric.sections.reduce((sum: number, sec: any) => {
-    return (
-      sum +
-      (sec.points || 0) +
-      (sec.criteria ? sec.criteria.reduce((s: number, c: any) => s + (c.points || 0), 0) : 0)
-    );
+  return rubric.sections.reduce((sum: number, section: any) => {
+    let sectionTotal = 0;
+    
+    // Add points from section-level items
+    sectionTotal += (section.rubricItems || []).reduce((s: number, item: any) => s + (item.points || 0), 0);
+    
+    // Add points from part-level items
+    sectionTotal += (section.parts || []).reduce((partSum: number, part: any) => {
+      return partSum + (part.rubricItems || []).reduce((itemSum: number, item: any) => itemSum + (item.points || 0), 0);
+    }, 0);
+    
+    return sum + sectionTotal;
   }, 0);
 }
 
@@ -35,11 +41,25 @@ export async function POST(_req: Request, { params }: { params: Promise<{ id: st
 
   let generatedRubric: any = null;
   try {
-    // Prepare images as base64
+    // Prepare images as base64 (prompt + all solution images)
     const images: string[] = [];
+
+    // Prompt image (index 0)
     const promptB64 = Buffer.from(assignment.promptImage).toString('base64').replace(/\n/g, '');
     images.push(`data:image/png;base64,${promptB64}`);
 
+    // Fetch solution images for this assignment
+    const solutions = await prisma.solution.findMany({
+      where: { assignmentId },
+      select: { image: true }
+    });
+
+    solutions.forEach((sol) => {
+      const b64 = Buffer.from(sol.image).toString('base64').replace(/\n/g, '');
+      images.push(`data:image/png;base64,${b64}`);
+    });
+
+    // Build vision parts for GPT-4o
     const visionParts = images.flatMap((img, idx) => [
       { type: 'text', text: idx === 0 ? 'Prompt image:' : `Solution image ${idx}` },
       { type: 'image_url', image_url: { url: img } },
@@ -51,28 +71,30 @@ export async function POST(_req: Request, { params }: { params: Promise<{ id: st
         {
           role: 'system',
           content: `
-You are an expert Discrete Math / Probability TA writing detailed, Gradescope-style rubrics **in pure JSON**.
+You are an expert Discrete-Math / Probability TA who writes **Gradescope-style rubrics in pure JSON**.
 
-Design requirements:
-1. Create one TOP-LEVEL "section" for **each distinct fully-correct solution method** you see in the provided solution image(s).  (e.g., “Multiple-polynomial approach”, “Single-polynomial approach”, etc.)  A student only needs to satisfy ONE section to earn full credit.
-2. Inside every section list fine-grained "criteria" that represent the concrete steps, intermediate results, or final answers visible in that method.  Assign points to each criterion so that the section total equals its parent section’s points.
-3. Reference ONLY information that is explicitly visible in the solution image.  No guesses, no style/clarity remarks.
-4. If the prompt contains *multiple sub-parts* (e.g., “(a) … (b) …”), treat each sub-part as a **disjoint group of criteria** inside the same rubric—label them clearly ("Part (a)", "Part (b)" …).  Points for a part should be awarded only when *all* its criteria for the chosen solution method are satisfied.
-5. Use the "alternatives" list when a single criterion can be met by clearly different but correct lines (e.g., using equivalent formulas or numbers).
-6. Be maximally specific: include variable names, numeric answers, equation forms, etc., exactly as shown.
-7. Distribute the assignment total across sections so that **any one complete solution path earns the full total**.  If you create N alternative sections, each section’s points should equal the assignment total.
-8. JSON schema (return **only** this object—no markdown):
+Design requirements
+1. Create one top-level **section** for every fully-correct solution path you identify in the solution image(s).
+2. For each section provide one of two kinds of rubric items:
+   • rubricItems – criteria that belong directly to that section.
+   • Optional parts – for prompts that have sub-parts (e.g. “(a), (b) …”). Each part contains its own rubricItems.
+3. Every rubric item must reference only work that is **explicitly visible** in the solution image; do not invent style/clarity comments.
+4. Give each rubric item a positive points value.  The sum of points in **any single section path** must equal the assignment total (${assignment.totalPoints}).
+5. Be maximally specific: include exact numeric answers, equation forms, variable names, etc.
+6. JSON schema (return **only** this object – no markdown):
+
 {
   "sections": [
     {
       "title": "string",
-      "points": int,
-      "criteria": [
+      "rubricItems": [
+        { "title": "string", "points": int, "feedback": "string" }
+      ],
+      "parts": [
         {
-          "text": "string",            // what the student must show
-          "points": int,
-          "alternatives": [              // optional alternative phrasings/steps
-            { "text": "string" }
+          "title": "string",
+          "rubricItems": [
+            { "title": "string", "points": int, "feedback": "string" }
           ]
         }
       ]
@@ -80,7 +102,6 @@ Design requirements:
   ]
 }
 
-Ensure the sum of points in every section equals the assignment total (${assignment.totalPoints}).
 Return NOTHING except valid JSON.
       `.trim()
         },
@@ -109,6 +130,29 @@ Return NOTHING except valid JSON.
       raw = raw.slice(firstBrace, lastBrace + 1);
     }
     generatedRubric = JSON.parse(raw);
+
+    // ---- Ensure every element has a stable id field ----
+    const addIds = (rubric: any) => {
+      if (!rubric || !rubric.sections) return;
+      rubric.sections.forEach((sec: any, sIdx: number) => {
+        if (!sec.id) sec.id = `section-${sIdx}`;
+
+        // section-level items
+        (sec.rubricItems || []).forEach((it: any, iIdx: number) => {
+          if (!it.id) it.id = `item-${sIdx}-${iIdx}`;
+        });
+
+        // parts and their items
+        (sec.parts || []).forEach((part: any, pIdx: number) => {
+          if (!part.id) part.id = `part-${sIdx}-${pIdx}`;
+          (part.rubricItems || []).forEach((it: any, iIdx: number) => {
+            if (!it.id) it.id = `item-${sIdx}-${pIdx}-${iIdx}`;
+          });
+        });
+      });
+    };
+
+    addIds(generatedRubric);
   } catch (err) {
     console.error('OpenAI error, falling back to stub', err);
   }
@@ -117,10 +161,15 @@ Return NOTHING except valid JSON.
     generatedRubric = {
       sections: [
         {
+          id: 'section-1',
           title: 'Overall Correctness',
-          points: assignment.totalPoints,
-          criteria: [
-            { text: 'Matches provided solution', points: assignment.totalPoints, alternatives: [] },
+          rubricItems: [
+            { 
+              id: 'item-1', 
+              title: 'Matches provided solution', 
+              points: assignment.totalPoints, 
+              feedback: 'Full credit for correct solution' 
+            },
           ],
         },
       ],

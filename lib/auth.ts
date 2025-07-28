@@ -5,6 +5,20 @@ import { PrismaClient } from '@prisma/client';
 
 const prisma = new PrismaClient();
 
+// Debug environment variables
+console.log(
+  "[debug] GOOGLE_CLIENT_ID at runtime:",
+  JSON.stringify(process.env.GOOGLE_CLIENT_ID)
+);
+console.log(
+  "[debug] GOOGLE_CLIENT_SECRET at runtime:",
+  JSON.stringify(process.env.GOOGLE_CLIENT_SECRET ? "***SET***" : "***NOT SET***")
+);
+console.log(
+  "[debug] DATABASE_URL at runtime:",
+  JSON.stringify(process.env.DATABASE_URL ? "***SET***" : "***NOT SET***")
+);
+
 export const authOptions: NextAuthOptions = {
   adapter: PrismaAdapter(prisma),
   providers: [
